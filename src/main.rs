@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Command, sync::{LazyLock, Mutex}, thread, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{collections::HashMap, io::ErrorKind, process::Command, sync::{LazyLock, Mutex}, thread, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use discord_rich_presence::{activity::{Activity, ActivityType, Assets, Timestamps}, DiscordIpc, DiscordIpcClient};
 
@@ -107,12 +107,12 @@ async fn get_album_art_url(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  println!("Connecting to Discord...");
+  println!("Connecting to Discord IPC socket...");
 
   let mut discord_ipc_client = DiscordIpcClient::new("1307075307299405844")?;
   discord_ipc_client.connect()?;
 
-  println!("Successfully connected to Discord.");
+  println!("Successfully connected to Discord IPC socket.");
 
   let reqwest_client = reqwest::Client::new();
 
@@ -124,27 +124,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match parse_status_str(&String::from_utf8_lossy(&cmus_remote_result.stdout)) {
       Ok(CmusStatus { playing, title, artist, album, duration_sec, position_sec }) => {
         if playing {
-          discord_ipc_client.set_activity(Activity::new()
+          let mut activity = Activity::new()
             .activity_type(ActivityType::Listening)
             .details(&title)
             .state(&artist)
             .timestamps(Timestamps::new()
               .start(unix_epoch_secs_from_now(&-position_sec.try_into()?))
-              .end(unix_epoch_secs_from_now(&(duration_sec - position_sec).try_into()?)))
-            .assets(Assets::new()
-              .large_image(match &get_album_art_url(&reqwest_client, &album, &artist).await {
-                Ok(album_art_url) => album_art_url,
-                Err(_) => "",
-              }))
-          )?;
+              .end(unix_epoch_secs_from_now(&(duration_sec - position_sec).try_into()?)));
+
+          let album_art_result = &get_album_art_url(&reqwest_client, &album, &artist).await;
+          match album_art_result {
+            Ok(album_art_url) => {
+              activity = activity.assets(Assets::new().large_image(album_art_url));
+            },
+            Err(e) => {
+              eprintln!("Error occurred while fetching album art: {:?}", e);
+            },
+          }
+
+          // FIXME: don't panic on SIGPIPE when setting activity (e.g. when switching accounts)
+          // Instead, attempt to reconnect.
+          match discord_ipc_client.set_activity(activity) {
+            Ok(()) => {},
+            Err(e) => {
+              eprintln!("Error occurred while setting activity: {:?}", e);
+
+              if std::io::Error::last_os_error().kind() == ErrorKind::BrokenPipe {
+                println!("Discord IPC socket closed. Attempting to reconnect...");
+                discord_ipc_client.connect()?;
+                println!("Successfully reconnected to Discord IPC socket.");
+              }
+            }
+          }
         } else {
           discord_ipc_client.clear_activity()?;
         }
       },
 
       Err(e) => {
-        println!("An error occurred while parsing cmus-remote output: {:?}", e);
-        println!("Clearing Rich Presence status.");
+        eprintln!("Error occurred while parsing cmus-remote output: {:?}", e);
+        eprintln!("Clearing Rich Presence status.");
         discord_ipc_client.clear_activity()?;
       }
     }
