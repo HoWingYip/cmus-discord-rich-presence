@@ -26,7 +26,16 @@ The above command will only work if you're using systemd.
 
 If you added the service as recommended above, no further action is needed.
 
-If you didn't, you'll need to manually run `cmus-discord-rich-presence` in your shell of choice. Optionally run it in the background using `cmus-discord-rich-presence &`.
+If you didn't, you'll need to manually run `cmus-discord-rich-presence` in your shell of choice. Optionally run it in the background using `cmus-discord-rich-presence & disown`.
+
+
+## Uninstallation
+
+```bash
+./scripts/uninstall.sh
+```
+
+The above script deletes the binary from `~/.local/bin/` and removes the service if installed.
 
 
 ## Sample screenshot
