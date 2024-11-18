@@ -152,28 +152,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
           }
 
-          match discord_ipc_client.set_activity(activity) {
-            Ok(()) => {},
-            Err(e) => {
-              eprintln!("Error occurred while setting activity: {:?}", e);
-
-              if std::io::Error::last_os_error().kind() == ErrorKind::BrokenPipe {
-                println!("Discord IPC socket closed. Attempting to reconnect...");
-                discord_ipc_client.connect()?;
-                println!("Successfully reconnected to Discord IPC socket.");
-              }
-            }
-          }
+          let _ = discord_ipc_client.set_activity(activity);
         } else {
-          discord_ipc_client.clear_activity()?;
+          let _ = discord_ipc_client.clear_activity();
         }
       },
 
       Err(e) => {
         eprintln!("Error occurred while parsing cmus-remote output: {:?}", e);
         eprintln!("Clearing Rich Presence status.");
-        discord_ipc_client.clear_activity()?;
+        let _ = discord_ipc_client.clear_activity();
       }
+    }
+
+    if std::io::Error::last_os_error().kind() == ErrorKind::BrokenPipe {
+      println!("Discord IPC socket closed. Attempting to reconnect...");
+      discord_ipc_client.connect()?;
+      println!("Successfully reconnected to Discord IPC socket.");
     }
 
     thread::sleep(Duration::from_millis(1000));
