@@ -176,7 +176,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     thread::sleep(Duration::from_millis(1000));
   }
-
-  // client.close()?;
-  // Ok(())
 }
