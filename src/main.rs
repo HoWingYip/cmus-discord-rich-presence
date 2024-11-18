@@ -50,13 +50,15 @@ fn unix_epoch_secs_from_now(secs: &i64) -> i64 {
 }
 
 async fn get_album_art_url(
-  reqwest_client: &reqwest::Client, album: &String, artist: &String,
-) -> Result<String, Box<dyn std::error::Error>> {
+  reqwest_client: &reqwest::Client, album: &str, artist: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
   if album.is_empty() || artist.is_empty() {
     return Err("album and artist must not be empty".into());
   }
 
-  static ALBUM_ART_CACHE: LazyLock<Mutex<HashMap<(String, String), String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+  static ALBUM_ART_CACHE_MUTEX: LazyLock<Mutex<HashMap<(String, String), Option<String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+  let mut album_art_cache = ALBUM_ART_CACHE_MUTEX.lock()?;
 
   let first_artist = match artist.split_once(",") {
     Some((first_artist, _)) => first_artist,
@@ -64,45 +66,52 @@ async fn get_album_art_url(
   };
 
   let cache_key = (first_artist.to_owned(), album.to_owned());
-  match ALBUM_ART_CACHE.lock()?.get(&cache_key) {
-    Some(url) => return Ok(url.to_owned()),
+  match album_art_cache.get(&cache_key) {
+    Some(url) => return Ok(url.clone()),
     None => {
       println!("Cache miss for key {:?}", cache_key);
+      // Placeholder value for if fetching album art fails
+      album_art_cache.insert(cache_key.clone(), None);
     },
   }
 
-  let response = reqwest_client.post("https://itunes.apple.com/search")
-    .form(&[
-      ("term", format!("{} {}", first_artist, album)),
-      ("entity", "album".to_owned()),
-    ])
+  let response = reqwest_client.get("https://itunes.apple.com/search")
+    .query(&(
+      ("term", format!("{} {}", first_artist, album).as_str()),
+      ("media", "music"),
+      ("entity", "album"),
+      ("limit", "1"),
+    ))
     .send()
     .await?
     .json::<serde_json::Value>()
     .await?;
 
-  let url = "https://a5.mzstatic.com/us/r1000/0/".to_string() +
-    &response
+  let first_album = response
       .get("results").ok_or("'results' key missing from response")?
       .as_array().ok_or("'results' field could not be converted to Vec")?
-      .iter()
-      .find(|v| -> bool {
-        match v.get("collectionName") {
-          Some(found_album) => found_album == album,
-          None => false,
-        }
-      }).ok_or("No album found with matching name")?
-      .get("artworkUrl100").ok_or("'artworkUrl100' key missing from 'results' object")?
-      .to_string()
-      .splitn(2, "/image/thumb")
-      .collect::<Vec<&str>>()[1]
-      .rsplitn(2, "/")
-      .collect::<Vec<&str>>()[1]
-      .to_owned();
-  
-  ALBUM_ART_CACHE.lock()?.insert(cache_key, url.clone());
+      .get(0);
 
-  Ok(url)
+  match first_album {
+    Some(album_result) => {
+      let url = "https://a5.mzstatic.com/us/r1000/0/".to_owned() + album_result
+        .get("artworkUrl100").ok_or("'artworkUrl100' key missing from 'results' object")?
+        .to_string()
+        .splitn(2, "/image/thumb")
+        .collect::<Vec<&str>>()[1]
+        .rsplitn(2, "/")
+        .collect::<Vec<&str>>()[1];
+      
+      album_art_cache.insert(cache_key, Some(url.clone()));
+      
+      Ok(Some(url))
+    },
+
+    None => {
+      println!("No album found with matching name.");
+      Ok(None)
+    }
+  }
 }
 
 #[tokio::main]
@@ -132,18 +141,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
               .start(unix_epoch_secs_from_now(&-position_sec.try_into()?))
               .end(unix_epoch_secs_from_now(&(duration_sec - position_sec).try_into()?)));
 
-          let album_art_result = &get_album_art_url(&reqwest_client, &album, &artist).await;
-          match album_art_result {
-            Ok(album_art_url) => {
+          let album_art_result = get_album_art_url(&reqwest_client, &album, &artist).await;
+          match &album_art_result {
+            Ok(Some(album_art_url)) => {
               activity = activity.assets(Assets::new().large_image(album_art_url));
             },
+            Ok(None) => {},
             Err(e) => {
               eprintln!("Error occurred while fetching album art: {:?}", e);
             },
           }
 
-          // FIXME: don't panic on SIGPIPE when setting activity (e.g. when switching accounts)
-          // Instead, attempt to reconnect.
           match discord_ipc_client.set_activity(activity) {
             Ok(()) => {},
             Err(e) => {
