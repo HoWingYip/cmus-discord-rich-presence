@@ -101,9 +101,9 @@ async fn get_album_art_url(
         .collect::<Vec<&str>>()[1]
         .rsplitn(2, "/")
         .collect::<Vec<&str>>()[1];
-      
+
       album_art_cache.insert(cache_key, Some(url.clone()));
-      
+
       Ok(Some(url))
     },
 
@@ -119,7 +119,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   println!("Connecting to Discord IPC socket...");
 
   let mut discord_ipc_client = DiscordIpcClient::new("1307075307299405844")?;
-  discord_ipc_client.connect()?;
+  while discord_ipc_client.connect().is_err() {
+    eprintln!("Failed to connect to Discord IPC socket. Retrying after 10 seconds.");
+    thread::sleep(Duration::from_millis(10000));
+  }
 
   println!("Successfully connected to Discord IPC socket.");
 
@@ -148,7 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             Ok(None) => {},
             Err(e) => {
-              eprintln!("Error occurred while fetching album art: {:?}", e);
+              eprintln!("Error occurred while fetching album art: {}", e);
             },
           }
 
@@ -159,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       },
 
       Err(e) => {
-        eprintln!("Error occurred while parsing cmus-remote output: {:?}", e);
+        eprintln!("Error occurred while parsing cmus-remote output: {}", e);
         eprintln!("Clearing Rich Presence status.");
         let _ = discord_ipc_client.clear_activity();
       }
