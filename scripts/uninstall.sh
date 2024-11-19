@@ -1,3 +1,5 @@
+set -e
+
 case $(systemctl --user list-units --type=service --all) in
   *cmus-discord-rich-presence.service*)
     echo "Found service; uninstalling"

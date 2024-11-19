@@ -1,3 +1,5 @@
+set -e
+
 USER_SERVICE_DIR=$HOME/.local/share/systemd/user
 
 mkdir -p $USER_SERVICE_DIR

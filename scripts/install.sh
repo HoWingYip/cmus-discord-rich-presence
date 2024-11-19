@@ -1,3 +1,5 @@
+set -e
+
 cargo build --release
 cp target/release/cmus-discord-rich-presence $HOME/.local/bin
 
