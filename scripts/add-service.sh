@@ -1,5 +1,12 @@
 set -e
 
+EXECUTABLE_PATH=$HOME/.local/bin/cmus-discord-rich-presence
+
+if [ ! -f $EXECUTABLE_PATH ]; then
+  echo "Executable not found at $EXECUTABLE_PATH; exiting"
+  exit
+fi
+
 USER_SERVICE_DIR=$HOME/.local/share/systemd/user
 
 mkdir -p $USER_SERVICE_DIR
@@ -10,7 +17,7 @@ Description=Discord Rich Presence integration for cmus
 
 [Service]
 Type=simple
-ExecStart=$HOME/.local/bin/cmus-discord-rich-presence
+ExecStart=$EXECUTABLE_PATH
 
 [Install]
 WantedBy=default.target
